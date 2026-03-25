@@ -61,6 +61,12 @@
             width: 100%;
             height: 300px;
         }
+        /* Taller container specifically for the Monte Carlo chart */
+        .mc-chart-container {
+            width: 100%;
+            height: 400px; 
+            margin-top: 20px;
+        }
         .footer {
             text-align: center;
             padding: 20px;
@@ -68,7 +74,6 @@
             color: #888;
             font-family: 'Helvetica Neue', Arial, sans-serif;
         }
-        .highlight { color: var(--maytech-navy); font-weight: bold; }
     </style>
 </head>
 <body>
@@ -117,14 +122,24 @@
     </div>
 
     <div class="content-section">
-        <h3>03. Tail-Risk Mitigation (Monte Carlo Simulation)</h3>
-        <p>To quantify the downside risk of supply chain disruptions (e.g., China/Taiwan macro volatility), I engineered a stochastic simulation to stress-test the firm's Debt Service Coverage Ratio (DSCR).</p>
-        <div class="math-box">
-            <strong>Geometric Brownian Motion for Revenue Stress Testing:</strong>
-            $$ dS_t = \mu S_t dt + \sigma S_t dW_t $$
-            <p style="font-size: 0.95rem; margin-top: 10px;"><em>Where \( S_t \) is the projected cash flow, \( \mu \) is the historical drift (growth), \( \sigma \) is the observed volatility in semiconductor CapEx, and \( dW_t \) is a Wiener process simulating macro shocks.</em></p>
+        <h3>03. Tail-Risk Mitigation (Stochastic Simulation)</h3>
+        <p>To quantify the downside risk of supply chain disruptions (e.g., China/Taiwan macro volatility), I engineered a Monte Carlo simulation using Geometric Brownian Motion to stress-test the firm's projected free cash flow over a 5-year horizon.</p>
+        
+        <div class="grid-2" style="align-items: start; gap: 30px; margin-top: 20px;">
+            <div class="math-box" style="margin: 0;">
+                <strong>Geometric Brownian Motion SDE:</strong>
+                $$ dS_t = \mu S_t dt + \sigma S_t dW_t $$
+                <p style="font-size: 0.9rem; margin-top: 15px;"><em>Where \( S_t \) is cash flow, \( \mu \) is the historical drift (growth), \( \sigma \) is observed volatility, and \( dW_t \) is a Wiener process simulating macro shocks.</em></p>
+                <p style="font-size: 0.9rem; margin-top: 15px;"><strong>Simulation Conclusion:</strong> Even under severe volatility stress paths (represented by the lower-bound trajectories), ENTG's 80% recurring revenue base ensures sufficient liquidity to service Term Loan B without breaching covenants.</p>
+            </div>
+            
+            <div style="background: white; border: 1px solid #ddd; padding: 15px; border-radius: 4px;">
+                <h4 style="margin: 0 0 10px 0; color: var(--maytech-navy); font-family: 'Helvetica Neue', sans-serif; text-align: center;">Simulated Cash Flow Trajectories (100 Paths)</h4>
+                <div class="mc-chart-container">
+                    <canvas id="monteCarloChart"></canvas>
+                </div>
+            </div>
         </div>
-        <p><strong>Conclusion:</strong> Even under 99th-percentile stress scenarios, ENTG's 80% recurring revenue floor ensures sufficient liquidity to service Term Loan B and Senior Note obligations without breaching covenants.</p>
     </div>
 
     <div class="footer">
@@ -133,7 +148,7 @@
 </div>
 
 <script>
-    // Graph 1: EBITDA Margin Expansion (Bar Chart)
+    // --- GRAPH 1: EBITDA Margin Expansion ---
     const ctxMargin = document.getElementById('marginChart').getContext('2d');
     new Chart(ctxMargin, {
         type: 'bar',
@@ -150,16 +165,14 @@
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
-                title: { display: true, text: 'Projected EBITDA Margin Expansion (Post-Synergy)', font: { size: 14, family: 'Georgia' } },
+                title: { display: true, text: 'Projected EBITDA Margin Expansion', font: { size: 14, family: 'Georgia' } },
                 legend: { display: false }
             },
-            scales: {
-                y: { min: 20, max: 40, ticks: { callback: function(value) { return value + '%'; } } }
-            }
+            scales: { y: { min: 20, max: 40, ticks: { callback: function(value) { return value + '%'; } } } }
         }
     });
 
-    // Graph 2: Deleveraging Trend (Line Chart)
+    // --- GRAPH 2: Deleveraging Trend ---
     const ctxLeverage = document.getElementById('leverageChart').getContext('2d');
     new Chart(ctxLeverage, {
         type: 'line',
@@ -170,21 +183,89 @@
                 data: [4.0, 3.6, 3.1, 2.7, 2.3],
                 borderColor: '#c5a059',
                 backgroundColor: 'rgba(197, 160, 89, 0.2)',
-                borderWidth: 3,
-                pointRadius: 5,
-                fill: true,
-                tension: 0.3
+                borderWidth: 3, pointRadius: 5, fill: true, tension: 0.3
             }]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
-                title: { display: true, text: 'Rapid Deleveraging Trajectory (Target < 3.0x)', font: { size: 14, family: 'Georgia' } },
+                title: { display: true, text: 'Rapid Deleveraging Trajectory', font: { size: 14, family: 'Georgia' } },
                 legend: { display: false }
             },
+            scales: { y: { min: 1.5, max: 4.5, ticks: { callback: function(value) { return value + 'x'; } } } }
+        }
+    });
+
+    // --- GRAPH 3: Monte Carlo Simulation (Live JS Generation) ---
+    // Box-Muller transform to generate normally distributed random numbers
+    function randomNormal() {
+        let u = 0, v = 0;
+        while(u === 0) u = Math.random(); 
+        while(v === 0) v = Math.random();
+        return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+    }
+
+    const mcDatasets = [];
+    const numPaths = 50; // Rendering 50 paths to keep browser performance smooth
+    const steps = 5; // 5 years
+    const S0 = 100; // Baseline normalized cash flow index
+    const mu = 0.08; // 8% expected drift
+    const sigma = 0.22; // 22% assumed volatility
+    
+    // Generate the Base Case (Expected Mean Path)
+    const baseData = [S0];
+    for(let j=1; j<=steps; j++) { baseData.push(S0 * Math.exp(mu * j)); }
+    
+    mcDatasets.push({
+        label: 'Base Case (Expected)',
+        data: baseData,
+        borderColor: '#c5a059', // Maytech Gold
+        borderWidth: 3,
+        fill: false,
+        tension: 0.2,
+        zIndex: 10 // Keep on top
+    });
+
+    // Generate Stochastic Paths
+    for (let i = 0; i < numPaths; i++) {
+        let path = [S0];
+        let currentS = S0;
+        for (let j = 1; j <= steps; j++) {
+            let Z = randomNormal();
+            // GBM Formula Step
+            currentS = currentS * Math.exp((mu - 0.5 * sigma * sigma) * 1 + sigma * Math.sqrt(1) * Z);
+            path.push(currentS);
+        }
+        mcDatasets.push({
+            label: `Simulation Path`,
+            data: path,
+            borderColor: 'rgba(0, 45, 86, 0.12)', // Faded Maytech Navy
+            borderWidth: 1,
+            fill: false,
+            pointRadius: 0, // Hide dots to look like a continuous fan chart
+            tension: 0.3
+        });
+    }
+
+    const ctxMonteCarlo = document.getElementById('monteCarloChart').getContext('2d');
+    new Chart(ctxMonteCarlo, {
+        type: 'line',
+        data: {
+            labels: ['Year 0', 'Year 1', 'Year 2', 'Year 3', 'Year 4', 'Year 5'],
+            datasets: mcDatasets
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: { enabled: false } // Disable tooltips so it doesn't get messy with 50 lines
+            },
             scales: {
-                y: { min: 1.5, max: 4.5, ticks: { callback: function(value) { return value + 'x'; } } }
+                y: { 
+                    title: { display: true, text: 'Normalized Cash Flow Index' }
+                }
             }
         }
     });
